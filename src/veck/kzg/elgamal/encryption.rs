@@ -65,9 +65,8 @@ impl<const N: usize, C: Pairing, D: Clone + Digest + Send + Sync> EncryptionProo
         &mut self,
         evaluations: &[C::ScalarField],
         powers: &Powers<C>,
-        rng: &mut impl Rng,
     ) {
-        evaluations
+        let proof = evaluations
             .par_iter()
             .fold(Self::default, |mut acc, eval| {
                 let split_eval = SplitScalar::from(*eval);
@@ -82,13 +81,7 @@ impl<const N: usize, C: Pairing, D: Clone + Digest + Send + Sync> EncryptionProo
                 acc.range_proofs.extend(other.range_proofs);
                 acc
             });
-        // for eval in evaluations {
-        //     let split_eval = SplitScalar::from(*eval);
-        //     let rp = split_eval
-        //         .splits()
-        //         .map(|s| RangeProof::new(s, MAX_BITS, powers, rng).expect("invalid range proof input"));
-        //     self.range_proofs.push(rp);
-        // }
+        self.range_proofs.extend(proof.range_proofs);
     }
 
     fn append<R: Rng>(
