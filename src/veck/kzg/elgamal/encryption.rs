@@ -67,13 +67,28 @@ impl<const N: usize, C: Pairing, D: Clone + Digest + Send + Sync> EncryptionProo
         powers: &Powers<C>,
         rng: &mut impl Rng,
     ) {
-        for eval in evaluations {
-            let split_eval = SplitScalar::from(*eval);
-            let rp = split_eval
-                .splits()
-                .map(|s| RangeProof::new(s, MAX_BITS, powers, rng).expect("invalid range proof input"));
-            self.range_proofs.push(rp);
-        }
+        evaluations
+            .par_iter()
+            .fold(Self::default, |mut acc, eval| {
+                let split_eval = SplitScalar::from(*eval);
+                let rng = &mut ark_std::rand::thread_rng();
+                let rp = split_eval
+                    .splits()
+                    .map(|s| RangeProof::new(s, MAX_BITS, powers, rng).expect("invalid range proof input"));
+                acc.range_proofs.push(rp);
+                acc
+            })
+            .reduce(Self::default, |mut acc, other| {
+                acc.range_proofs.extend(other.range_proofs);
+                acc
+            });
+        // for eval in evaluations {
+        //     let split_eval = SplitScalar::from(*eval);
+        //     let rp = split_eval
+        //         .splits()
+        //         .map(|s| RangeProof::new(s, MAX_BITS, powers, rng).expect("invalid range proof input"));
+        //     self.range_proofs.push(rp);
+        // }
     }
 
     fn append<R: Rng>(
