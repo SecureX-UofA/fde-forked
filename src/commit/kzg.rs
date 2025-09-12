@@ -5,10 +5,12 @@ use ark_ff::PrimeField;
 use ark_poly::univariate::DensePolynomial;
 use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
 use ark_poly_commit::DenseUVPolynomial;
+use ark_serialize::{CanonicalSerialize, CanonicalDeserialize};
 use ark_std::marker::PhantomData;
 use ark_std::rand::Rng;
 use ark_std::{One, UniformRand, Zero};
 
+#[derive(CanonicalSerialize, CanonicalDeserialize)]
 pub struct Powers<C: Pairing> {
     pub g1: Vec<C::G1Affine>,
     pub g2: Vec<C::G2Affine>,
