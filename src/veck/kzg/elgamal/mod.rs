@@ -47,6 +47,137 @@ where
     C: Pairing,
     D: Digest + Clone + Send + Sync,
 {
+    pub fn new_v2<R: Rng>(
+        f_poly: &DensePolynomial<C::ScalarField>,
+        f_s_poly: &DensePolynomial<C::ScalarField>,
+        encryption_sk: &C::ScalarField,
+        encryption_proof: EncryptionProof<N, C, D>,
+        ciphers: &Vec<C::G1Affine>,
+        powers: &Powers<C>,
+        rng: &mut R,
+    ) -> Result<(Self, C::ScalarField), CrateError> {
+        let mut hasher = Hasher::<D>::new();
+        ciphers
+            .iter()
+            .for_each(|cipher| hasher.update(cipher));
+
+        // challenge and KZG proof
+        let challenge = C::ScalarField::from_le_bytes_mod_order(&hasher.finalize());
+        let challenge_eval = f_s_poly.evaluate(&challenge);
+        let challenge_opening_proof = Kzg::proof(f_s_poly, challenge, challenge_eval, powers);
+        let challenge_eval_commitment = (C::G1Affine::generator() * challenge_eval).into_affine();
+
+        let domain_size = encryption_proof.ciphers.len();
+        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(domain_size)
+            .ok_or(CrateError::InvalidFftDomain(domain_size))?;
+
+        // NOTE According to the docs this should always return Some((q, rem)), so unwrap is fine
+        // https://docs.rs/ark-poly/latest/src/ark_poly/polynomial/univariate/dense.rs.html#144
+        let (f_q_poly, remainder) = (f_poly - f_s_poly)
+            .divide_by_vanishing_poly(domain)
+            .unwrap();
+        assert!(remainder.is_zero());
+        // subset polynomial KZG commitment
+        let com_f_q_poly = powers.commit_g1(&f_q_poly).into();
+
+        // DLEQ proof
+        let lagrange_evaluations = &domain.evaluate_all_lagrange_coefficients(challenge);
+        let q_point: C::G1 = Msm::msm_unchecked(
+            &encryption_proof.random_encryption_points,
+            lagrange_evaluations,
+        );
+
+        let dleq_proof = DleqProof::new(
+            encryption_sk,
+            q_point.into_affine(),
+            C::G1Affine::generator(),
+            rng,
+        );
+
+        Ok((Self {
+            encryption_proof,
+            challenge_eval_commitment,
+            challenge_opening_proof,
+            dleq_proof,
+            com_f_q_poly,
+            _poly: PhantomData,
+            _digest: PhantomData,
+        }, challenge))
+    }
+
+    pub fn verify_v2(
+        &self,
+        com_f_poly: C::G1,
+        com_f_s_poly: C::G1,
+        encryption_pk: C::G1Affine,
+        challenge: C::ScalarField,
+        powers: &Powers<C>,
+    ) -> Result<(), CrateError> {
+        let domain_size = self.encryption_proof.ciphers.len();
+        let domain = GeneralEvaluationDomain::<C::ScalarField>::new(domain_size)
+            .ok_or(CrateError::InvalidFftDomain(domain_size))?;
+
+        // polynomial division check via vanishing polynomial
+        let vanishing_poly = DensePolynomial::from(domain.vanishing_polynomial());
+        let com_vanishing_poly = powers.commit_g2(&vanishing_poly);
+        let subset_pairing_check = Kzg::<C>::pairing_check(
+            com_f_poly - com_f_s_poly,
+            self.com_f_q_poly.into_group(),
+            com_vanishing_poly,
+        );
+
+        // DLEQ check
+        let lagrange_evaluations = &domain.evaluate_all_lagrange_coefficients(challenge);
+        let q_point: C::G1 = Msm::msm_unchecked(
+            &self.encryption_proof.random_encryption_points,
+            lagrange_evaluations,
+        ); // Q
+        let c1_points: Vec<C::G1Affine> = self
+            .encryption_proof
+            .ciphers
+            .iter()
+            .map(|cipher| {
+                let c1 = cipher.c1();
+                c1
+            })
+            .collect();
+        let ct_point: C::G1 = Msm::msm_unchecked(&c1_points, lagrange_evaluations); // C_t
+
+        let q_star = ct_point - self.challenge_eval_commitment; // Q* = C_t / C_alpha
+        let dleq_check = self.dleq_proof.verify(
+            q_point.into(),
+            q_star,
+            C::G1Affine::generator(),
+            encryption_pk.into(),
+        );
+
+        // KZG pairing check
+        let point = C::G2Affine::generator() * challenge;
+        let kzg_check = Kzg::verify(
+            self.challenge_opening_proof,
+            com_f_s_poly.into(),
+            point,
+            self.challenge_eval_commitment.into_group(),
+            powers,
+        );
+
+        // check that split scalars are in a brute-forceable range
+
+        if !dleq_check {
+            Err(Error::InvalidDleqProof.into())
+        } else if !kzg_check {
+            Err(Error::InvalidKzgProof.into())
+        } else if !subset_pairing_check {
+            Err(Error::InvalidSubsetPolynomial.into())
+        } else if !self.encryption_proof.verify_split_scalars() {
+            Err(Error::InvalidSplitScalars.into())
+        } else if !self.encryption_proof.verify_range_proofs(powers) {
+            Err(Error::InvalidRangeProofs.into())
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn new<R: Rng>(
         f_poly: &DensePolynomial<C::ScalarField>,
         f_s_poly: &DensePolynomial<C::ScalarField>,
