@@ -1,29 +1,52 @@
+import json
+import os
+import re
 import matplotlib.pyplot as plt
-import numpy as np
 
-x_axis = [1<<exponent for exponent in range(13)]
+dir = "../target/criterion/kzg-elgamal/"
+folders = [name for name in os.listdir(dir) if os.path.isdir(os.path.join(dir, name))]
 
-proof_gen = [179.88, 96.14, 55.80, 36.42, 27.02, 22.34, 20.25, 19.42, 19.86, 20.83, 22.90, 27.60, 33.47]
-proof_vfy = [6.01, 7.54, 7.63, 7.78, 8.03, 8.54, 9.16, 10.20, 11.83, 14.12, 17.68, 27.90, 41.65]
-enc_check = [1.13, 2.11, 2.37, 1.9, 3.54, 5.78, 11.01, 20.6, 41.22, 80.78, 161.07, 320.77, 643.33]
+prove_pattern = re.compile(r"^proof-gen-(\d+)")
+verify_pattern = re.compile(r"^proof-vfy-(\d+)")
 
-fig, ax = plt.subplots(num = 1, figsize = (12,9), nrows = 2, ncols = 1, sharex = "col")
+def append_bench_data(folder_map):
+    folder_name = folder_map['name']
+    estimates_path = os.path.join(dir, folder_name, "base", "estimates.json")
+    if os.path.exists(estimates_path):
+        with open(estimates_path, "r") as f:
+            try:
+                estimates = json.load(f)
+                # Only keep the 'point_estimate' in the 'median'
+                folder_map['bench'] = estimates.get('median', {}).get('point_estimate') / 1000000
+            except Exception as e:
+                print(f"Failed to load {estimates_path}: {e}")
 
-ax[0].plot(x_axis, proof_gen, linewidth = 2.0)
-#ax[0].plot(x_axis, verifier, "b:", linewidth = 2.0)
-#ax[0].legend(["prover", "verifier"], loc = "upper left")
-ax[0].set_ylabel("prover time [ms]")
-ax[0].set_xscale('log', base = 2)
-ax[0].grid(True)
+prove_time = []
+verify_time = []
 
-ax[1].plot(x_axis, np.array(proof_vfy) + np.array(enc_check), linewidth = 2.0)
-#ax[1].plot(x_axis, encrypt, "k--", linewidth = 2.0)
-#ax[1].plot(x_axis, enc_check, "g:", linewidth = 2.0)
-#ax[1].legend(["split encryption", "split encryption check"], loc = "upper left")
-ax[1].set_ylabel("verifier time [ms]")
-ax[1].set_xlabel("data size [BLS12-381 field element]")
-ax[1].set_xscale('log', base = 2)
-ax[1].grid(True)
+for folder in folders:
+    m = prove_pattern.match(folder)
+    if m:
+        l = m.groups()[0]
+        entry = {'name': folder, 'l': l}
+        append_bench_data(entry)
+        prove_time.append(entry)
+        continue
+    m = verify_pattern.match(folder)
+    if m:
+        l = m.groups()[0]
+        entry = {'name': folder, 'l': l}
+        append_bench_data(entry)
+        verify_time.append(entry)
+        continue
 
-plt.tight_layout()
-plt.show()
+prove_time = sorted(prove_time, key=lambda x: int(x['l']))
+verify_time = sorted(verify_time, key=lambda x: int(x['l']))
+pt = list(map(lambda x: x['bench'], prove_time))
+vt = list(map(lambda x: x['bench'], verify_time))
+print("Prove times: {}".format(pt))
+print("Verify times: {}".format(vt))
+
+# Generated range proof, elapsed time: 23423 [ms]
+# Prove times: [160.17436817777778, 82.7790933888889, 44.76020196666667, 26.010704875, 16.298256791666667, 11.091688894179894, 8.891683441919193, 10.043410994949495, 13.561843208333334, 12.519060857142858, 23.241042314999998, 20.561196535714284, 24.976779883333332]
+# Verify times: [12.021436956250001, 16.864447766666665, 18.835436711111115, 25.352385533333333, 25.219340613095238, 25.779682208333337, 30.25220851388889, 23.362898041666664, 29.9995043, 33.10691138988095, 55.70703651666667, 104.84860387777779, 200.5871435]

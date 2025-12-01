@@ -35,13 +35,19 @@ fn bench_proof(c: &mut Criterion) {
     println!("This might take a few minutes and it's not included in the actual benchmarks.");
     let t_start = std::time::Instant::now();
     let data: Vec<Scalar> = (0..data_size).map(|_| Scalar::rand(rng)).collect();
-    let encryption_proof = EncryptionProof::new(&data, &encryption_pk, &powers, rng);
+    let mut encryption_proof = EncryptionProof::new(&data, &encryption_pk, &powers, rng);
     let elapsed = std::time::Instant::now().duration_since(t_start).as_secs();
     println!("Generated encryption proofs, elapsed time: {} [s]", elapsed);
 
+    let t_start = std::time::Instant::now();
+    encryption_proof
+        .generate_range_proof(&data, &powers);
+    let elapsed = std::time::Instant::now().duration_since(t_start).as_millis();
+    println!("Generated range proof, elapsed time: {} [ms]", elapsed);
+
     let domain = GeneralEvaluationDomain::new(data.len()).expect("valid domain");
     let index_map = fde::veck::index_map(domain);
-
+    
     let evaluations = Evaluations::from_vec_and_domain(data, domain);
     let f_poly: UniPoly = evaluations.interpolate_by_ref();
     let com_f_poly = powers.commit_g1(&f_poly);
