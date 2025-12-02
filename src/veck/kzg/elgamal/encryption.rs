@@ -143,6 +143,27 @@ impl<const N: usize, C: Pairing, D: Clone + Digest + Send + Sync> EncryptionProo
         }
     }
 
+    pub fn subset_with_range_proofs(&self, indices: &[usize]) -> Self {
+        let size = indices.len();
+        let mut ciphers = Vec::with_capacity(size);
+        let mut short_ciphers = Vec::with_capacity(size);
+        let mut random_encryption_points = Vec::with_capacity(size);
+        let mut range_proofs = Vec::with_capacity(size);
+        for &index in indices {
+            ciphers.push(self.ciphers[index]);
+            short_ciphers.push(self.short_ciphers[index]);
+            random_encryption_points.push(self.random_encryption_points[index]);
+            range_proofs.push(self.range_proofs[index].clone());
+        }
+
+        Self {
+            ciphers,
+            short_ciphers,
+            range_proofs,
+            random_encryption_points,
+        }
+    }
+
     /// Checks that the sum of split scalars evaluate to the encrypted value via the homomorphic
     /// properties of Elgamal encryption.
     pub fn verify_split_scalars(&self) -> bool {

@@ -64,10 +64,8 @@ fn bench_proof(c: &mut Criterion) {
         let f_s_poly: UniPoly = subset_evaluations.interpolate_by_ref();
         let com_f_s_poly = powers.commit_g1(&f_s_poly);
 
-        let mut sub_encryption_proof = encryption_proof.subset(&subset_indices);
-        sub_encryption_proof
-            .generate_range_proof(&subset_evaluations.evals, &powers);
-        
+        let sub_encryption_proof = encryption_proof.subset_with_range_proofs(&subset_indices);
+
         group.bench_function(&proof_gen_name, |b| {
             b.iter(|| {
                 Proof::new(
